@@ -1,0 +1,120 @@
+name: ops-lab
+
+services:
+  # ---------- 业务层 ----------
+  app:
+    build: ./app
+    container_name: ops-app
+    restart: unless-stopped
+    environment:
+      REDIS_HOST: redis
+      MYSQL_HOST: mysql
+      MYSQL_USER: ops
+      MYSQL_PASSWORD: ${MYSQL_APP_PASSWORD:-ops_123456}
+      MYSQL_DATABASE: opsdb
+    depends_on:
+      - redis
+      - mysql
+    networks: [ops-net]
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:5000/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: ops-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on: [app]
+    networks: [ops-net]
+    mem_limit: 64m
+
+  # ---------- 存储层 ----------
+  mysql:
+    image: mysql:8.0
+    container_name: ops-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_123456}
+      MYSQL_DATABASE: opsdb
+      MYSQL_USER: ops
+      MYSQL_PASSWORD: ${MYSQL_APP_PASSWORD:-ops_123456}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --innodb-buffer-pool-size=128M
+      - --max-connections=100
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks: [ops-net]
+    mem_limit: 700m
+
+  redis:
+    image: redis:7-alpine
+    container_name: ops-redis
+    restart: unless-stopped
+    command: redis-server --maxmemory 64mb --maxmemory-policy allkeys-lru --appendonly yes
+    volumes:
+      - redis-data:/data
+    networks: [ops-net]
+    mem_limit: 96m
+
+  # ---------- 可观测层 ----------
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    container_name: ops-node-exporter
+    restart: unless-stopped
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+    command:
+      - --path.rootfs=/host
+    networks: [ops-net]
+    mem_limit: 64m
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: ops-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/rules:/etc/prometheus/rules:ro
+      - prom-data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=7d
+    networks: [ops-net]
+    mem_limit: 512m
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: ops-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin_123456}
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on: [prometheus]
+    networks: [ops-net]
+    mem_limit: 400m
+
+volumes:
+  mysql-data:
+  redis-data:
+  prom-data:
+  grafana-data:
+
+networks:
+  ops-net:
+    driver: bridge

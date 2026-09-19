@@ -1,0 +1,47 @@
+groups:
+  - name: ops-lab-basic-alerts
+    rules:
+      - alert: InstanceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.job }} 采集目标挂了"
+          description: "{{ $labels.instance }} 已经 1 分钟无法抓取指标。"
+
+      - alert: HighCpuUsage
+        expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "CPU 使用率超过 85%"
+          description: "实例 {{ $labels.instance }} CPU 已连续 5 分钟高于 85%。"
+
+      - alert: LowMemory
+        expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 > 90
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "内存使用率超过 90%"
+          description: "实例 {{ $labels.instance }} 可用内存不足 10%。"
+
+      - alert: DiskAlmostFull
+        expr: (1 - node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay"}) * 100 > 85
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "磁盘使用率超过 85%"
+          description: "{{ $labels.mountpoint }} 使用率超过 85%。"
+
+      - alert: AppBackendDown
+        expr: app_mysql_up == 0 or app_redis_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "应用依赖异常"
+          description: "MySQL 或 Redis 连通性检查失败。"
